@@ -66,7 +66,7 @@ def formata_dataframe(df_relator):
     df_relator = df_relator.ffill()
     return df_relator
 
-def cria_somas_por_emendas(df_relator):
+def somas_por_emendas(df_relator):
     
     somas_atendimento_setorial = df_relator.groupby('Emenda')['Atendimento Setorial'].sum()
     somas_valor_solicitado = df_relator.groupby('Emenda')['Valor Solicitado'].sum()
@@ -77,6 +77,26 @@ def cria_somas_por_emendas(df_relator):
     df_relator = df_relator.merge(somas_valor_solicitado.rename('Soma Valor Solicitado'), 
                               left_on='Emenda', right_index=True, how='left')
     return df_relator
+
+def somas_parcelas_impositivas(df_bancada):
+
+    somas_parcela_impositiva = df_bancada.groupby('Emenda')['Valor Solicitado'].sum()
+    df_bancada = df_bancada.merge(somas_parcela_impositiva.rename('Soma Valor Solicitado'), 
+                              left_on='Emenda', right_index=True, how='left')
+    
+    return df_bancada
+
+def mapeia_parcelas_impositivas(df_bancada,df_relator):
+    
+    # Criar um dicionário de mapeamento a partir do DataFrame df_bancada
+    mapeamento = dict(zip(df_bancada['Emenda'], df_bancada['Soma Valor Solicitado']))
+
+    # Atualizar a coluna 'Tem parcela impositiva?' do df_relator usando o método .map()
+    # Caso não haja correspondência, preenche com '-'
+    df_relator['Tem parcela impositiva?'] = df_relator['Emenda'].map(mapeamento).fillna('-')
+
+    return df_relator
+    
 
 def main():
     # Conectar ao livro de trabalho ativo no xlwings
@@ -95,9 +115,10 @@ def main():
     df_bancada = sheet_bancada.used_range.options(pd.DataFrame, index=False, header=True).value
     df_bancada = df_bancada.ffill()
 
-    
+    df_bancada = somas_parcelas_impositivas(df_bancada)
     df_relator = formata_dataframe(df_relator)
-    df_relator = cria_somas_por_emendas(df_relator)
+    df_relator = somas_por_emendas(df_relator)
+    df_relator = mapeia_parcelas_impositivas(df_bancada,df_relator)
 
     # LEMBRAR DE SOLICITAR MUDANÇA DO NOME DA COLUNA Funcional!!!!! ######################
     
@@ -108,7 +129,7 @@ def main():
     # Aplicando a função para calcular 'Parecer'
     df_relator['Parecer Padrão'] = df_relator.apply(lambda row: calcula_parecer(row), axis=1)
     
-
+    
     # Escrever o DataFrame `df_lexor` de volta a partir da coluna "Sequencial da Emenda"
     sheet_apropriacao.range('A1').options(index=False).value = df_relator.iloc[:, :-2] # 'reset_index' evita o índice do Dataframe. Descartando as duas últimas colunas de soma criadas anteriormente
 
