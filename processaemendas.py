@@ -119,6 +119,7 @@ def main():
     df_relator = formata_dataframe(df_relator)
     df_relator = somas_por_emendas(df_relator)
     df_relator = mapeia_parcelas_impositivas(df_bancada,df_relator)
+    df_relator['Valor'] = df_relator['Atendimento Setorial']
 
     # LEMBRAR DE SOLICITAR MUDANÇA DO NOME DA COLUNA Funcional!!!!! ######################
     
