@@ -7,7 +7,14 @@ df = ""
 df_criterio = ""
 df_bancada = ""
 
+PARECER_1_APROVACAO = 1
+PARECER_2_APROVACAO_PARCIAL = 2
+PARECER_3_REJEICAO = 3
 
+DECISAO_1_APROVACAO = 1
+DECISAO_2_APROVACAO = 2
+DECISAO_13_APROVACAO_PARCIAL  = 13
+DECISAO_38_REJEICAO = 38
 
 # Função para verificar se a emenda está na 'Bancada Impositiva - Consulta'
 def checa_bancada_impositiva(emenda, df_bancada):
@@ -22,15 +29,15 @@ def calcula_decisao(row, df_bancada):
     if row['Soma Atendimento Setorial'] != 0:
         # Se a soma de 'Atendimento Setorial' for igual à soma de 'Valor Solicitado'
         if row['Soma Atendimento Setorial'] == row['Soma Valor Solicitado']:
-            return 1  # Retorna 1 se forem iguais
+            return PARECER_1_APROVACAO  # Retorna 1 se forem iguais  # Pela Aprovação
         else:
-            return 2  # Retorna 2 se forem diferentes
+            return PARECER_2_APROVACAO_PARCIAL  # Retorna 2 se forem diferentes  # Pela Aprovação Parcial
     else:
         # Se a soma de 'Atendimento Setorial' for zero, verificar a presença da emenda na aba 'Bancada Impositiva - Consulta'
         if checa_bancada_impositiva(row['Sequencial da Emenda'], df_bancada):
-            return 2  # Retorna 2 se a emenda for encontrada na 'Bancada Impositiva - Consulta'
+            return PARECER_2_APROVACAO_PARCIAL  # Retorna 2 se a emenda for encontrada na 'Bancada Impositiva - Consulta'  # Pela Aprovação Parcial
         else:
-            return 3  # Retorna 3 se a emenda não for encontrada na 'Bancada Impositiva - Consulta'
+            return PARECER_3_REJEICAO  # Retorna 3 se a emenda não for encontrada na 'Bancada Impositiva - Consulta' # Pela Rejeição
 
 
 # Função para simular a fórmula de 'ID Uso'
@@ -50,21 +57,21 @@ def calcula_id_uso(row,df_criterio):
 
 def calcula_parecer(row):
     # Simula a lógica da fórmula =SE(AD2=1;1;SE(AD2=2;13;38)) onde AD2 é a coluna 'Decisão'
-    if row['Decisão Parecer'] == 1:
-        return 1
-    elif row['Decisão Parecer'] == 2:
-        return 13
+    if row['Decisão Parecer'] == PARECER_1_APROVACAO:
+        return DECISAO_1_APROVACAO
+    elif row['Decisão Parecer'] == PARECER_2_APROVACAO_PARCIAL:
+        return DECISAO_13_APROVACAO_PARCIAL 
     else:
-        return 38
+        return DECISAO_38_REJEICAO
 
-def formata_dataframe(df_relator):
+def formata_dataframe(df):
     # Atualizar o dataframe original, mantendo apenas até a última linha com valor numérico.
     # Remove a última linha de contabilização e possíveis linhas vazias ao final da tabela
-    ultima_linha_numerica = df_relator[df_relator['Emenda'].apply(lambda x: pd.to_numeric(x, errors='coerce')).notna()].index[-1]
-    df_relator = df_relator.loc[:ultima_linha_numerica].copy()
+    ultima_linha_numerica = df[df['Emenda'].apply(lambda x: pd.to_numeric(x, errors='coerce')).notna()].index[-1]
+    df = df.loc[:ultima_linha_numerica].copy()
     # Preencher células mescladas (NaN) com o último valor válido
-    df_relator = df_relator.ffill()
-    return df_relator
+    df = df.ffill()
+    return df
 
 def somas_por_emendas(df_relator):
     
@@ -116,6 +123,7 @@ def main():
     df_bancada = df_bancada.ffill()
 
     df_bancada = somas_parcelas_impositivas(df_bancada)
+    df_bancada = formata_dataframe(df_bancada)
     df_relator = formata_dataframe(df_relator)
     df_relator = somas_por_emendas(df_relator)
     df_relator = mapeia_parcelas_impositivas(df_bancada,df_relator)
@@ -130,9 +138,16 @@ def main():
     # Aplicando a função para calcular 'Parecer'
     df_relator['Parecer Padrão'] = df_relator.apply(lambda row: calcula_parecer(row), axis=1)
     
+    # Aplicando a função para calcular 'ID Uso'
+    df_bancada['ID Uso'] = df_bancada.apply(lambda row: calcula_id_uso(row,df_criterio), axis=1)
     
-    # Escrever o DataFrame `df_lexor` de volta a partir da coluna "Sequencial da Emenda"
+
+    
+    # Escrever o DataFrame `df_relator de volta na planilha original
     sheet_apropriacao.range('A1').options(index=False).value = df_relator.iloc[:, :-2] # 'reset_index' evita o índice do Dataframe. Descartando as duas últimas colunas de soma criadas anteriormente
+    # Escrever o DataFrame `df_relator de volta na planilha original
+    sheet_bancada.range('A1').options(index=False).value = df_bancada.iloc[:,:-1] #Descartando a última coluna de soma de valor solicitado por emenda criada anteriormente
+
 
     sheet_plansheet.range('A1').value = 'Planilha Lexor gerada com sucesso!'
 
