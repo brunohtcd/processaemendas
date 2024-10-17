@@ -1,53 +1,135 @@
 import xlwings as xw
 import pandas as pd
+from dataclasses import dataclass
+from typing import Optional
+from enum import Enum
 
 
 
-df = ""
-df_criterio = ""
-df_bancada = ""
+# Constantes para nomes de planilhas
+PLANILHA_RELATOR = 'Relator - Coletivas Apropriação'
+PLANILHA_CRITERIO = 'Critério IU 6'
+PLANILHA_BANCADA = 'Bancada Impositiva - Consulta'
+PLANILHA_BOTAO = 'Sheet1'
 
-PARECER_1_APROVACAO = 1
-PARECER_2_APROVACAO_PARCIAL = 2
-PARECER_3_REJEICAO = 3
 
-DECISAO_1_APROVACAO = 1
-DECISAO_2_APROVACAO = 2
-DECISAO_13_APROVACAO_PARCIAL  = 13
-DECISAO_38_REJEICAO = 38
+
+class Parecer(Enum):
+    """
+    Enum que representa os diferentes pareceres que podem ser atribuídos a uma emenda.
+    """
+    APROVACAO = 1
+    APROVACAO_PARCIAL = 13 
+    REJEICAO = 38 
+
+
+class Decisao(Enum):
+    """
+    Enum que representa as diferentes decisões que podem ser tomadas para uma emenda.
+    """
+    APROVACAO = 1
+    APROVACAO_PARCIAL = 2
+    REJEICAO = 3
+
+# Dicionário que mapeia cada parecer para a decisão correspondente
+DECISAO_PARA_PARECER = {
+    Decisao.APROVACAO: Parecer.APROVACAO,
+    Decisao.APROVACAO_PARCIAL: Parecer.APROVACAO_PARCIAL,
+    Decisao.REJEICAO: Parecer.REJEICAO
+}
+
+
+@dataclass
+class Emenda:
+    """
+    Classe que representa uma emenda e suas informações relevantes.
+    
+    Attributes:
+        sequencial (str): O código sequencial da emenda.
+        uo (int): Unidade orçamentária da emenda.
+        funcional (str): Função da emenda.
+        atendimento_setorial (float): Valor de atendimento setorial da emenda.
+        valor_solicitado (float): Valor solicitado para a emenda.
+        soma_atendimento_setorial (float): Soma do atendimento setorial.
+        soma_valor_solicitado (float): Soma dos valores solicitados.
+        tem_parcela_impositiva (Optional[float]): Indica se a emenda tem parcela impositiva.
+        id_uso (Optional[int]): ID de uso da emenda.
+        decisao_parecer (Optional[Parecer]): Parecer da emenda.
+        parecer_padrao (Optional[Decisao]): Decisão padrão da emenda.
+    """
+    sequencial: str
+    uo: int
+    funcional: str
+    atendimento_setorial: float
+    valor_solicitado: float
+    soma_atendimento_setorial: float
+    soma_valor_solicitado: float
+    tem_parcela_impositiva: Optional[float] = None
+    id_uso: Optional[int] = None
+    decisao_parecer: Optional[Parecer] = None
+    parecer_padrao: Optional[Decisao] = None
+
 
 # Função para verificar se a emenda está na 'Bancada Impositiva - Consulta'
-def checa_bancada_impositiva(emenda, df_bancada):
+def checa_bancada_impositiva(emenda: str, df_bancada: pd.DataFrame) -> bool:
+    """
+    Verifica se uma emenda está presente na planilha 'Bancada Impositiva - Consulta'.
     
-    # Verifica se a emenda está presente na coluna 'Emenda' da aba 'Bancada Impositiva - Consulta'
+    Args:
+        emenda (str): O código da emenda a ser verificada.
+        df_bancada (pd.DataFrame): DataFrame contendo as informações da bancada impositiva.
+    
+    Returns:
+        bool: True se a emenda estiver presente, False caso contrário.
+    """
     return emenda in df_bancada['Emenda'].values
 
 
+
 # Função para calcular a 'Decisão' de acordo com a lógica fornecida
-def calcula_decisao(row, df_bancada):
-    # Se a soma de 'Atendimento Setorial' não for zero
-    if row['Soma Atendimento Setorial'] != 0:
-        # Se a soma de 'Atendimento Setorial' for igual à soma de 'Valor Solicitado'
-        if row['Soma Atendimento Setorial'] == row['Soma Valor Solicitado']:
-            return PARECER_1_APROVACAO  # Retorna 1 se forem iguais  # Pela Aprovação
+def calcula_decisao(emenda: Emenda, df_bancada: pd.DataFrame) -> Decisao:
+    """
+    Calcula a decisão de uma emenda com base em regras de atendimento setorial e presença na bancada impositiva.
+    Em resumo, a fórmula retornará:
+    1 se a soma em 'Atendimento Setorial' for igual à soma em 'Atendimento Setorial' (e ambas não forem zero), ou seja, se valor solicitado for = aprovado, então emenda aprovada;
+    2 se a soma em 'Atendimento Setorial' for diferente de 'Atendimento Setorial' (mas não zero), ou se a emenda for encontrado na planilha de impositivas 
+      (ou seja, aprovado parcial se atendido for menor que solicitado ou, se valor atendido discricionária for zero, se a emenda tiver parcela impositiva)
+    3 se a soma em 'Atendimento Setorial' for zero e A2 não for encontrado na outra planilha (ou seja, emenda rejeitada)
+    
+    Args:
+        emenda (Emenda): Objeto Emenda contendo os dados da emenda.
+        df_bancada (pd.DataFrame): DataFrame contendo as informações da bancada impositiva.
+    
+    Returns:
+        Parecer: Enum indicando o parecer (APROVACAO, APROVACAO_PARCIAL, REJEICAO).
+    """
+    if emenda.soma_atendimento_setorial != 0:
+        if emenda.soma_atendimento_setorial == emenda.soma_valor_solicitado:
+            return Decisao.APROVACAO
         else:
-            return PARECER_2_APROVACAO_PARCIAL  # Retorna 2 se forem diferentes  # Pela Aprovação Parcial
+            return Decisao.APROVACAO_PARCIAL
     else:
-        # Se a soma de 'Atendimento Setorial' for zero, verificar a presença da emenda na aba 'Bancada Impositiva - Consulta'
-        if checa_bancada_impositiva(row['Sequencial da Emenda'], df_bancada):
-            return PARECER_2_APROVACAO_PARCIAL  # Retorna 2 se a emenda for encontrada na 'Bancada Impositiva - Consulta'  # Pela Aprovação Parcial
+        if checa_bancada_impositiva(emenda.sequencial, df_bancada):
+            return Decisao.APROVACAO_PARCIAL
         else:
-            return PARECER_3_REJEICAO  # Retorna 3 se a emenda não for encontrada na 'Bancada Impositiva - Consulta' # Pela Rejeição
+            return Decisao.REJEICAO
 
 
-# Função para simular a fórmula de 'ID Uso'
-def calcula_id_uso(row,df_criterio):
-        
-    # Contagem condicional em 'Critério IU 6'
-    UO = int(row['UO'])
-    count_x = df_criterio['UO'].eq(UO).sum()  # Equivalente a CONT.SE('Critério IU 6'!A:A;X2)
-    last_4_of_y = row['Funcional'][-4:]  # Equivalente a DIREITA(Y2;4)
-    count_y = df_criterio['Ação'].eq(last_4_of_y).sum()  # Equivalente a CONT.SE('Critério IU 6'!B:B;DIREITA(Y2;4))
+def calcula_id_uso(emenda: Emenda, df_criterio: pd.DataFrame) -> int:
+    """
+    Calcula o ID de uso para uma emenda com base em critérios de UO e funcional presentes na tabela de critério.
+    
+    Args:
+        emenda (Emenda): Objeto Emenda contendo os dados da emenda.
+        df_criterio (pd.DataFrame): DataFrame contendo os critérios de uso.
+    
+    Returns:
+        int: ID de uso (6 ou 0).
+    """
+
+    count_x = df_criterio['UO'].eq(emenda.uo).sum()
+    last_4_of_y = emenda.funcional[-4:]
+    count_y = df_criterio['Ação'].eq(last_4_of_y).sum()
     
     # Condicional para retornar 6 ou 0
     if count_x == 1 and count_y == 1:
@@ -55,25 +137,46 @@ def calcula_id_uso(row,df_criterio):
     else:
         return 0
 
-def calcula_parecer(row):
-    # Simula a lógica da fórmula =SE(AD2=1;1;SE(AD2=2;13;38)) onde AD2 é a coluna 'Decisão'
-    if row['Decisão Parecer'] == PARECER_1_APROVACAO:
-        return DECISAO_1_APROVACAO
-    elif row['Decisão Parecer'] == PARECER_2_APROVACAO_PARCIAL:
-        return DECISAO_13_APROVACAO_PARCIAL 
-    else:
-        return DECISAO_38_REJEICAO
+def calcula_parecer(decisao_parecer: Decisao) -> Parecer:
+    """
+    Mapeia a decisão para um parecer correspondente.
+    
+    Args:
+        decisao_parecer (Decisao): Enum indicando a Decisao.
+    
+    Returns:
+        Decisao: Enum indicando o parecer correspondente a Decisao.
+    """
+    return DECISAO_PARA_PARECER[decisao_parecer]
 
 def formata_dataframe(df):
-    # Atualizar o dataframe original, mantendo apenas até a última linha com valor numérico.
-    # Remove a última linha de contabilização e possíveis linhas vazias ao final da tabela
+    """
+      Atualiza o dataframe original, mantendo apenas até a última linha com valor numérico.
+      Remove a última linha de contabilização e possíveis linhas vazias ao final da tabela
+      Preenche células mescladas (NaN) com o último valor válido
+    Args:
+        df (pd.DataFrame): DataFrame a ser formatado.
+    
+    Returns:
+        pd.DataFrame: DataFrame formatado.
+    """
+    
     ultima_linha_numerica = df[df['Emenda'].apply(lambda x: pd.to_numeric(x, errors='coerce')).notna()].index[-1]
     df = df.loc[:ultima_linha_numerica].copy()
-    # Preencher células mescladas (NaN) com o último valor válido
+    
     df = df.ffill()
     return df
 
 def somas_por_emendas(df_relator):
+    """
+    Calcula as somas de atendimento setorial e valor solicitado para cada emenda.
+    
+    Args:
+        df_relator (pd.DataFrame): DataFrame contendo os dados das emendas.
+    
+    Returns:
+        pd.DataFrame: DataFrame atualizado com colunas de soma para atendimento setorial e valor solicitado.
+    """
     
     somas_atendimento_setorial = df_relator.groupby('Emenda')['Atendimento Setorial'].sum()
     somas_valor_solicitado = df_relator.groupby('Emenda')['Valor Solicitado'].sum()
@@ -86,7 +189,15 @@ def somas_por_emendas(df_relator):
     return df_relator
 
 def somas_parcelas_impositivas(df_bancada):
-
+    """
+    Calcula a soma dos valores solicitados para cada emenda na bancada impositiva.
+    
+    Args:
+        df_bancada (pd.DataFrame): DataFrame contendo os dados da bancada impositiva.
+    
+    Returns:
+        pd.DataFrame: DataFrame atualizado com a coluna de soma de valores solicitados.
+    """
     somas_parcela_impositiva = df_bancada.groupby('Emenda')['Valor Solicitado'].sum()
     df_bancada = df_bancada.merge(somas_parcela_impositiva.rename('Soma Valor Solicitado'), 
                               left_on='Emenda', right_index=True, how='left')
@@ -94,7 +205,16 @@ def somas_parcelas_impositivas(df_bancada):
     return df_bancada
 
 def mapeia_parcelas_impositivas(df_bancada,df_relator):
+    """
+    Mapeia parcelas impositivas do DataFrame da bancada para o DataFrame do relator.
     
+    Args:
+        df_bancada (pd.DataFrame): DataFrame contendo os dados da bancada impositiva.
+        df_relator (pd.DataFrame): DataFrame contendo os dados do relator.
+    
+    Returns:
+        pd.DataFrame: DataFrame do relator atualizado com a coluna de parcelas impositivas.
+    """
     # Criar um dicionário de mapeamento a partir do DataFrame df_bancada
     mapeamento = dict(zip(df_bancada['Emenda'], df_bancada['Soma Valor Solicitado']))
 
@@ -103,45 +223,87 @@ def mapeia_parcelas_impositivas(df_bancada,df_relator):
     df_relator['Tem parcela impositiva?'] = df_relator['Emenda'].map(mapeamento).fillna('-')
 
     return df_relator
+
+def processa_emenda(linha: pd.Series, df_criterio: pd.DataFrame, df_bancada: pd.DataFrame) -> pd.Series:
+    """
+    Processa uma linha do DataFrame, calculando ID de uso, decisão do parecer e parecer padrão.
+    
+    Args:
+        row (pd.Series): Linha do DataFrame contendo os dados da emenda.
+        df_criterio (pd.DataFrame): DataFrame contendo os critérios de uso.
+        df_bancada (pd.DataFrame): DataFrame contendo os dados da bancada impositiva.
+    
+    Returns:
+        pd.Series: Linha atualizada com as novas colunas calculadas.
+    """
+    emenda = Emenda(
+        sequencial=linha['Emenda'],
+        uo=int(linha['UO']),
+        funcional=linha['Funcional'],
+        atendimento_setorial=linha['Atendimento Setorial'],
+        valor_solicitado=linha['Valor Solicitado'],
+        soma_atendimento_setorial=linha['Soma Atendimento Setorial'],
+        soma_valor_solicitado=linha['Soma Valor Solicitado'],
+        tem_parcela_impositiva=linha['Tem parcela impositiva?']
+    )
+    
+    emenda.id_uso = calcula_id_uso(emenda, df_criterio)
+    emenda.decisao_parecer = calcula_decisao(emenda, df_bancada)
+    emenda.parecer_padrao = calcula_parecer(emenda.decisao_parecer)
+    
+    linha['ID Uso'] = emenda.id_uso
+    linha['Decisão Parecer'] = emenda.decisao_parecer.value
+    linha['Parecer Padrão'] = emenda.parecer_padrao.value
+    linha['Valor'] = linha['Atendimento Setorial']
+    
+    return linha
+
+def processa_emendas(df_relator: pd.DataFrame, df_criterio: pd.DataFrame, df_bancada: pd.DataFrame) -> pd.DataFrame:
+    """
+    Processa todas as emendas no DataFrame do relator.
+    
+    Args:
+        df_relator (pd.DataFrame): DataFrame contendo os dados das emendas do relator.
+        df_criterio (pd.DataFrame): DataFrame contendo os critérios de uso.
+        df_bancada (pd.DataFrame): DataFrame contendo os dados da bancada impositiva.
+    
+    Returns:
+        pd.DataFrame: DataFrame do relator atualizado com as novas colunas calculadas.
+    """
+    return df_relator.apply(processa_emenda, axis=1, args=(df_criterio, df_bancada))
     
 
 def main():
+    """
+    Função principal para carregar os dados das planilhas, processar as emendas e atualizar as planilhas.
+    """
     # Conectar ao livro de trabalho ativo no xlwings
     wb = xw.Book.caller()  # Isso conecta ao arquivo Excel aberto pelo xlwings
-    sheet_plansheet = wb.sheets['Sheet1']
+    sheet_plansheet = wb.sheets[PLANILHA_BOTAO]
     sheet_plansheet.range('A1').value = 'Gerando planilha Lexor...'
   
 
-    # Carregar as abas como DataFrames
-    sheet_apropriacao = wb.sheets['Relator - Coletivas Apropriação']
-    sheet_criterio = wb.sheets['Critério IU 6']
-    sheet_bancada = wb.sheets['Bancada Impositiva - Consulta']
-
+    # Carregar as abas 
+    sheet_apropriacao = wb.sheets[PLANILHA_RELATOR]
+    sheet_criterio = wb.sheets[PLANILHA_CRITERIO]
+    sheet_bancada = wb.sheets[PLANILHA_BANCADA]
+    # Carregar as abas como DataFrames pandas
     df_relator =  sheet_apropriacao.used_range.options(pd.DataFrame, index=False, header=True).value
     df_criterio = sheet_criterio.used_range.options(pd.DataFrame, index=False, header=True).value
     df_bancada = sheet_bancada.used_range.options(pd.DataFrame, index=False, header=True).value
-    df_bancada = df_bancada.ffill()
+    
 
-    df_bancada = somas_parcelas_impositivas(df_bancada)
+    # Formate dataframes
     df_bancada = formata_dataframe(df_bancada)
     df_relator = formata_dataframe(df_relator)
+    # Realiza calulos auxiliares
+    df_bancada = somas_parcelas_impositivas(df_bancada)
     df_relator = somas_por_emendas(df_relator)
     df_relator = mapeia_parcelas_impositivas(df_bancada,df_relator)
-    df_relator['Valor'] = df_relator['Atendimento Setorial']
+    # Processa todas as emendas 
+    df_relator = processa_emendas(df_relator, df_criterio, df_bancada)
 
-    # LEMBRAR DE SOLICITAR MUDANÇA DO NOME DA COLUNA Funcional!!!!! ######################
     
-    # Aplicando a função para calcular 'ID Uso'
-    df_relator['ID Uso'] = df_relator.apply(lambda row: calcula_id_uso(row,df_criterio), axis=1)
-    # Aplicando a função para calcular 'Decisão Parecer'
-    df_relator['Decisão Parecer'] = df_relator.apply(lambda row: calcula_decisao(row, df_bancada), axis=1)
-    # Aplicando a função para calcular 'Parecer'
-    df_relator['Parecer Padrão'] = df_relator.apply(lambda row: calcula_parecer(row), axis=1)
-    
-    # Aplicando a função para calcular 'ID Uso'
-    df_bancada['ID Uso'] = df_bancada.apply(lambda row: calcula_id_uso(row,df_criterio), axis=1)
-    
-
     
     # Escrever o DataFrame `df_relator de volta na planilha original
     sheet_apropriacao.range('A1').options(index=False).value = df_relator.iloc[:, :-2] # 'reset_index' evita o índice do Dataframe. Descartando as duas últimas colunas de soma criadas anteriormente
