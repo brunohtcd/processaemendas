@@ -258,7 +258,41 @@ def processa_emenda(linha: pd.Series, df_criterio: pd.DataFrame, df_bancada: pd.
     
     return linha
 
-def processa_emendas(df_relator: pd.DataFrame, df_criterio: pd.DataFrame, df_bancada: pd.DataFrame) -> pd.DataFrame:
+def processa_emenda_bancada(linha: pd.Series, df_criterio: pd.DataFrame, df_bancada: None) -> pd.Series:
+    """
+    Processa uma linha do DataFrame, calculando ID de uso, decisão do parecer e parecer padrão.
+    
+    Args:
+        row (pd.Series): Linha do DataFrame contendo os dados da emenda.
+        df_criterio (pd.DataFrame): DataFrame contendo os critérios de uso.
+        df_bancada (pd.DataFrame): DataFrame contendo os dados da bancada impositiva.
+    
+    Returns:
+        pd.Series: Linha atualizada com as novas colunas calculadas.
+    """
+    emenda = Emenda(
+        sequencial=linha['Emenda'],
+        uo=int(linha['UO']),
+        funcional=linha['Funcional'],
+        atendimento_setorial=linha['Atendimento Setorial'],
+        valor_solicitado=linha['Valor Solicitado'],
+        soma_atendimento_setorial= 0,
+        soma_valor_solicitado= 0,
+        tem_parcela_impositiva= '-'
+    )
+    
+    emenda.id_uso = calcula_id_uso(emenda, df_criterio)
+    emenda.decisao_parecer = Decisao.APROVACAO
+    emenda.parecer_padrao = calcula_parecer(emenda.decisao_parecer)
+    
+    linha['ID Uso'] = emenda.id_uso
+    linha['Decisão Parecer'] = emenda.decisao_parecer.value
+    linha['Parecer Padrão'] = emenda.parecer_padrao.value
+    linha['Valor'] = linha['Atendimento Setorial']
+    
+    return linha
+
+def processa_emendas(df: pd.DataFrame, df_criterio: pd.DataFrame, df_bancada: pd.DataFrame, funcao_processamento: callable) -> pd.DataFrame:
     """
     Processa todas as emendas no DataFrame do relator.
     
@@ -270,7 +304,7 @@ def processa_emendas(df_relator: pd.DataFrame, df_criterio: pd.DataFrame, df_ban
     Returns:
         pd.DataFrame: DataFrame do relator atualizado com as novas colunas calculadas.
     """
-    return df_relator.apply(processa_emenda, axis=1, args=(df_criterio, df_bancada))
+    return df.apply(funcao_processamento, axis=1, args=(df_criterio, df_bancada))
     
 
 def main():
@@ -301,7 +335,9 @@ def main():
     df_relator = somas_por_emendas(df_relator)
     df_relator = mapeia_parcelas_impositivas(df_bancada,df_relator)
     # Processa todas as emendas 
-    df_relator = processa_emendas(df_relator, df_criterio, df_bancada)
+    df_relator = processa_emendas(df_relator, df_criterio, df_bancada, processa_emenda)
+    # processa emendas de banada
+    df_bancada = processa_emendas(df_bancada, df_criterio, None, processa_emenda_bancada)
 
     
     
